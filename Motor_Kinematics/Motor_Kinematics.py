@@ -1,6 +1,8 @@
-import matplotlib.pyplot as plt
+from matplotlib import pyplot as plt
 import numpy as np
-from sympy import *
+from sympy import symbols, Eq, solve
+import time
+
 
 class LinearActuatorSimulator:
   @staticmethod
@@ -61,10 +63,10 @@ class LinearActuatorSimulator:
 
 
       # Dicretize the continuous data
-      positions, velocities, discretized_accel, discretized_times = LinearActuatorSimulator.discretize_data(time_array, sample_rate, accelerations, initial_position, initial_velocity)
+      LinearActuatorSimulator.discretize_data(time_array, sample_rate, accelerations, initial_position, initial_velocity)
 
 
-      return time_array, accelerations, positions, velocities, discretized_accel, discretized_times
+      return time_array, accelerations
 
 
   @staticmethod
@@ -92,8 +94,8 @@ class LinearActuatorSimulator:
 
       # If there are positive solutions return
       if positive_solutions:
-          print("Positive solution for time_to_max_velocity and time_to_no_velocity:")
-          print(positive_solutions)
+          # print("Positive solution for time_to_max_velocity and time_to_no_velocity:")
+          # print(positive_solutions)
           return positive_solutions[0]
       else:
           print("No positive solutions")
@@ -111,9 +113,9 @@ class LinearActuatorSimulator:
       if user_goal_position < initial_position:
           print("Goal position must be greater than or equal to initial position")
           return False
-      if 0.5 * user_deceleration * time_to_no_velocity ** 2 > user_goal_position - initial_position:
-          print("Not able to decelerate in time :( ")
-          return False
+      # if 0.5 * user_deceleration * time_to_no_velocity ** 2 > user_goal_position - initial_position:
+      #     print("Not able to decelerate in time :( ")
+      #     return False
       return True
 
 
@@ -141,15 +143,14 @@ class LinearActuatorSimulator:
       positions = np.cumsum(velocities) * time_step + initial_position
 
 
-      print("discretized final time:", discretized_times[-1])
-      print("discretized final accel: ", discretized_accel[-1])
-      print("discretized final vel: ", velocities[-1])
-      print("discretized final pos: ", positions[-1])
-      print("relative time array:", time_array)
-      print("relative time accelerations:", accelerations)
+      # print("discretized final time:", discretized_times[-1])
+      # print("discretized final accel: ", discretized_accel[-1])
+      # print("discretized final vel: ", velocities[-1])
+      # print("discretized final pos: ", positions[-1])
+      # print("relative time array:", time_array)
+      # print("relative time accelerations:", accelerations)
      
-      LinearActuatorSimulator.plot_data(discretized_times, positions, velocities, discretized_accel)
-      return positions, velocities, discretized_accel, discretized_times
+      # LinearActuatorSimulator.plot_data(discretized_times, positions, velocities, discretized_accel)
   
   
   @staticmethod
@@ -178,97 +179,143 @@ class LinearActuatorSimulator:
       plt.tight_layout()
       plt.show()
 
+def display_values(final_accelerations, final_velocities, final_positions, t, j):
+      if j % sample_rate == 0:
+          print()
+          print(t)
+          print()
+          print("current acceleration: ", final_accelerations[-1])
+          print("current velocity: ", final_velocities[-1])
+          print("current position: ", final_positions[-1])
+       
 
 class Operations:
    def __init__(self):
        self.last_value = 0
+       self.acceleration = 0
        self.accelerations = []
+       self.initial_velocity = 0
 
-
-   @staticmethod
    def step(self, acceleration, t):
        deltatime = t - self.last_value
-       self.last_value = t
        self.accelerations.append(acceleration)
-       velocities = np.cumsum(self.accelerations) * deltatime
+       velocities = np.cumsum(self.accelerations) * deltatime + self.initial_velocity
        positions = np.cumsum(velocities) * deltatime
+       self.last_value = t
        return positions[-1], velocities[-1]
+   
    
 
 def simulate(sim_total_time, initial_position, initial_velocity, sample_rate):
    t = 0
+   j = 0
    final_accelerations = []
-   final_velocities = [initial_velocity]
-   final_positions = [initial_position]
-   current_accel = 0
+   final_velocities = []
+   final_positions = []
+   simulated_times = []
+   initial = True
 
-
-   commands = {
-       3 : (1, 100, 5, 2),
-       9 : (2, 50, 5, 2)
+    # Time : (user_accel, user_goal_pos, user_velocity, user_decel)
+   move_commands = {
+       3 : (6, 50, 2, 8),
+       25 : (2, 125, 50, 4)
    }
-
-
+   
+   Motor1 = Operations()
+   
+   # t_arr = np.arange(0, sim_total_time, 1/sample_rate)
+   # acc_arr = np.zeros_like(t_arr)
+   # command_time = np.array(move_commands.keys())
+   # j =0 
+   # time = []
+   # acceleration = []
+   # for i,t in enumerate(t_arr):
+   #     acc_arr[i] = t;
+   #     if t > command_time[j]:
+   #         time_array, accelerations = LinearActuatorSimulator.generate_motion_profile(
+   #                 move_commands[command_time[j]][0], move_commands[command_time[j]][1], move_commands[command_time[j]][2], move_commands[command_time[j]][3], final_positions[-1], final_velocities[-1]
+   #             )
+   #         j = j+1
+   #     #check if there is anext acceleration
+   #     step(a,act_time)
+   
    while t < sim_total_time:
-       current_position, current_velocity = Operations.step(current_accel, t)
-       final_positions.append(current_position)
-       final_velocities.append(current_velocity)
+       stepped = False
+       # Use initial values before command is called
+       if initial:
+           final_positions.append(initial_position + initial_velocity*t)
+           final_velocities.append(initial_velocity)
+       
+       # Use final position after command is called, but force v = 0
+       else:    
+           final_positions.append(final_positions[-1])
+           final_velocities.append(0)
+       final_accelerations.append(0)
+       
+       # current_position, current_velocity = Motor1.step(final_accelerations[-1], t) # deltatime is wrong because step gets called twice in one iteration the first time gen motion is called
 
-
-       for i in commands:
-           if commands[i][0] > t - 1/sample_rate and commands[i][0] < t + 1/sample_rate:
-               time_array, accelerations, positions, velocities, discretized_accel, discretized_times = LinearActuatorSimulator.generate_motion_profile(
-                   commands[i][1], commands[i][2], commands[i][3], commands[i][4], final_positions[-1], final_velocities[-1]
+       # When command is called
+       for i in move_commands:
+           # If time is within command time
+           if i > t - 1/(2*sample_rate) and i < t + 1/(2*sample_rate):
+               # if command is not first command, force initial vel = 0
+               if initial == True: Motor1.initial_velocity = final_velocities[-1]
+               else: final_velocities[-1] = 0
+               initial = False
+               
+               time_array, accelerations = LinearActuatorSimulator.generate_motion_profile(
+                   move_commands[i][0], move_commands[i][1], move_commands[i][2], move_commands[i][3], final_positions[-1], final_velocities[-1]
                )
-               current_accel = accelerations[-1]
-               t += time_array[-1]
+               
+               # discretize continuous acceleration calculations
+               first_t = t
+               #idx_next_time = np.where(time_array>t)[0][0]
+               while t < first_t + time_array[-1]:
+                   if(t < first_t + time_array[1]): final_accelerations.append(accelerations[0])
+                   elif(t < first_t + time_array[2]): final_accelerations.append(accelerations[1])
+                   elif(t < first_t + time_array[3]): final_accelerations.append(accelerations[2])
+                   else: final_accelerations.append(accelerations[3])
 
+                   # update position and velocity
+                   stepped = True
+                   current_position, current_velocity = Motor1.step(final_accelerations[-1], t)
+                   final_positions.append(current_position + initial_position)
+                   final_velocities.append(current_velocity)
+                   
+                   # increment (j is used to display values every second, t is used to increment time array)
+                   j+=1
+                   display_values(final_accelerations, final_velocities, final_positions, t, j)
+                   # time.sleep(1/sample_rate)
+                   simulated_times.append(t)
+                   t += 1/sample_rate
+       
+       # Check if iteration already called step  
+       if not stepped:
+            current_position, current_velocity = Motor1.step(final_accelerations[-1], t) # deltatime is wrong because step gets called twice in one iteration the first time gen motion is called
+            stepped = True
 
-       t += 1/sample_rate
+       # increment (j is used to display values every second, t is used to increment time array)
+       j+=1
+       display_values(final_accelerations, final_velocities, final_positions, t, j)
+       # time.sleep(1/sample_rate)
+       simulated_times.append(t)
+       t += 1/sample_rate 
+       
+   LinearActuatorSimulator.plot_data(simulated_times, final_positions, final_velocities, final_accelerations)
 
-
-   array = np.arange(0, sim_total_time, 1/sample_rate)
  
 
 def main():
-  # simulate(50, 0, 2, sample_rate)
-  # FUNCTION CALL
-  time_array, accelerations, positions, velocities, discretized_accel, discretized_times = LinearActuatorSimulator.generate_motion_profile(
-      user_acceleration = 3,
-      user_goal_position = 20,
-      user_velocity = 15,
-      user_deceleration = 10,
-      initial_position = 0,
-      initial_velocity = 20,
-  )
-sample_rate = 1000.0
+  simulate(40, 10, 5, sample_rate)
+sample_rate = 250.0
 main()
 
-
-# TODO
-  # while t < sim_total_time:
-  #     if t < 3 - 1/sample_rate:
-  #         final_accelerations.append(0)
-  #         final_velocities.append(initial_velocity)
-  #         final_positions.append(np.cumsum(final_velocities) * t + initial_position)
-         
-  #     elif t < 3 + 1/sample_rate and t > 3 - 1/sample_rate:
-  #         print("here")
-  #         time_array, accelerations, positions, velocities, discretized_accel, discretized_times = LinearActuatorSimulator.generate_motion_profile(
-  #             user_acceleration = 1,
-  #             user_goal_position = 10,
-  #             user_velocity = 5,
-  #             user_deceleration = 2,
-  #             initial_position = final_positions[-1],
-  #             initial_velocity = final_velocities[-1],
-  #          )      
-  #         final_accelerations.append(discretized_accel)
-  #         final_velocities.append(velocities)
-  #         final_positions.append(positions)
-  #         t += time_array[-1]          
-  #     else:
-  #         final_accelerations.append(0)
-  #         final_velocities.append(0)
-  #         final_positions.append(final_positions[-1])         
-
-
+  # FUNCTION CALL
+  # time_array, accelerations = LinearActuatorSimulator.generate_motion_profile(
+  #     user_acceleration = 3,
+  #     user_goal_position = 20,
+  #     user_velocity = 15,
+  #     user_deceleration = 10,
+  #     initial_position = 0,
+  #     initial_velocity = 20,
+  # )
