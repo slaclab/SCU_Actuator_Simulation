@@ -1,6 +1,6 @@
 from matplotlib import pyplot as plt
 import numpy as np
-from sympy import symbols, Eq, solve
+import math
 
 
 class LinearActuatorSimulator:
@@ -29,8 +29,9 @@ class LinearActuatorSimulator:
         relative_goal_position = user_goal_position - initial_position
         relative_user_velocity = user_velocity - initial_velocity
 
-      # if relative_goal_position < 0:
-      #     user_acceleration = -user_acceleration
+        if relative_goal_position < 0:
+            user_acceleration = -user_deceleration
+            user_deceleration = -user_deceleration
 
       # Calculate time and distances to extremes
         time_to_max_velocity = relative_user_velocity / user_acceleration
@@ -51,19 +52,18 @@ class LinearActuatorSimulator:
             time_to_no_velocity,
             )
         if not valid:
-            print ('Not a valid movement')
+            print('Not a valid movement')
             exit()
 
       # Handle Triangle Motion Profile if necessary
-        if distance_to_max_velocity + distance_to_no_velocity > relative_goal_position:
-            time_to_max_velocity, time_to_no_velocity = LinearActuatorSimulator.solve_for_time(user_acceleration,
-                    user_deceleration, relative_goal_position,
-                    initial_velocity)
+        if abs(distance_to_max_velocity) + abs(distance_to_no_velocity) > relative_goal_position:
+            time_to_max_velocity = (math.sqrt(user_deceleration*(user_acceleration + user_deceleration)*(2*user_acceleration*relative_goal_position + initial_velocity**2)) - user_acceleration * initial_velocity - user_deceleration * initial_velocity)/(user_acceleration*(user_acceleration+user_deceleration))
+            time_to_no_velocity = (math.sqrt(user_deceleration*(user_acceleration + user_deceleration)*(2*user_acceleration*relative_goal_position + initial_velocity**2)) - user_acceleration * initial_velocity - user_deceleration * initial_velocity)/(user_deceleration*(user_deceleration+user_acceleration))
             const_v_time = 0
             time_under_initial = initial_velocity / user_deceleration
-        else:
-
+              
       # If not calculate time with no accel
+        else:
             const_v_time = (relative_goal_position
                             - (distance_to_no_velocity
                             + distance_to_max_velocity)) / user_velocity
@@ -74,36 +74,6 @@ class LinearActuatorSimulator:
         accelerations = [user_acceleration, 0, -user_deceleration, 0]
 
         return time_array, accelerations
-
-    @staticmethod
-    def solve_for_time(
-        user_acceleration,
-        user_deceleration,
-        relative_goal_position,
-        initial_velocity,
-        ):
-        (time_to_max_velocity, time_to_no_velocity) = symbols('time_to_max_velocity time_to_no_velocity')
-        equation1 = Eq(initial_velocity * time_to_max_velocity + 0.5
-                       * user_acceleration * time_to_max_velocity ** 2
-                       + initial_velocity * time_to_no_velocity + 0.5
-                       * user_deceleration * time_to_no_velocity ** 2
-                       + initial_velocity ** 2 / (2
-                       * user_deceleration), relative_goal_position)
-        equation2 = Eq(user_acceleration * time_to_max_velocity
-                       - user_deceleration * time_to_no_velocity, 0)
-        solutions = solve((equation1, equation2),
-                          (time_to_max_velocity, time_to_no_velocity))
-
-      # Filter out negative solutions
-        positive_solutions = [solution for solution in solutions
-                              if solution[0] > 0 and solution[1] > 0]
-
-      # If there are positive solutions return
-        if positive_solutions:
-            return positive_solutions[0]
-        else:
-            print('No positive solutions')
-            exit()
 
     @staticmethod
     def validate_input(
@@ -178,7 +148,7 @@ def simulate(
     initial_velocity,
     ):
     
-    sim_time_array = np.arange(0, sim_total_time, 1 / sample_rate)
+    sim_time_array = np.arange(0, sim_total_time, 1/sample_rate)
     sim_accelerations = np.zeros_like(sim_time_array)
     sim_positions = np.zeros_like(sim_time_array)
     sim_velocities = np.zeros_like(sim_time_array)
@@ -186,30 +156,25 @@ def simulate(
     Motor1 = Operations(initial_velocity, initial_position)
 
     # Time : (user_accel, user_goal_pos, user_velocity, user_decel)
-    move_commands = {3: (6, 50, 5, 8), 
-                     25: (2, 185, 50, 4)}
+    move_commands = {3: (6, 11, 5, 8), 
+                     20: (2, 50, 50, 4)}
 
     command_time = list(move_commands.keys())
     j = 0
 
     for (i, t) in enumerate(sim_time_array):
-        if j < len(command_time):
-            if t > command_time[j] - 1 / (2 * sample_rate) and t < command_time[j] + 1 / (2 * sample_rate):
-                (continuous_time_array, continuous_accelerations) = LinearActuatorSimulator.generate_motion_profile(
-                    move_commands[command_time[j]][0],
-                    move_commands[command_time[j]][1],
-                    move_commands[command_time[j]][2],
-                    move_commands[command_time[j]][3],
-                    sim_positions[i - 1],
-                    sim_velocities[i - 1],
-                    )
+        if j < len(command_time) and t > command_time[j] - 1 / (2 * sample_rate) and t < command_time[j] + 1 / (2 * sample_rate):
+            continuous_time_array, continuous_accelerations = LinearActuatorSimulator.generate_motion_profile(
+                *move_commands[command_time[j]],
+                sim_positions[i - 1],
+                sim_velocities[i - 1])
 
-                continuous_time_array += t
-                j += 1
+            continuous_time_array += t
+            j += 1
 
-                for k in range(3):
-                    indices = np.where((sim_time_array > continuous_time_array[k]) & (sim_time_array < continuous_time_array[k + 1]))[0]
-                    sim_accelerations[indices] = continuous_accelerations[k]
+            for k in range(3):
+                indices = np.where((sim_time_array > continuous_time_array[k]) & (sim_time_array < continuous_time_array[k + 1]))[0]
+                sim_accelerations[indices] = continuous_accelerations[k]
 
         sim_positions[i], sim_velocities[i] = Motor1.step(sim_accelerations[i], t)
 
@@ -221,9 +186,10 @@ def simulate(
 
 
 def main():
-    simulate(40, 10, 6)
+    # (sim_total_time, initial_position, initial_velocity)
+    simulate(30, 10, 6)
 
-sample_rate = 40.0
+sample_rate = 100.0
 main()
 
   # FUNCTION CALL
