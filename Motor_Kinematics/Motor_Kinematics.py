@@ -1,7 +1,6 @@
 from matplotlib import pyplot as plt
 import numpy as np
-import math
-
+from math import sqrt
 
 class LinearActuatorSimulator:
 
@@ -20,6 +19,8 @@ class LinearActuatorSimulator:
         user_goal_position = abs(user_goal_position)
         user_velocity = abs(user_velocity)
         user_deceleration = abs(user_deceleration)
+        
+        sign = 1
 
       # If initial velocity is greater than user velocity, start out decelerating
         if initial_velocity > user_velocity:
@@ -30,8 +31,8 @@ class LinearActuatorSimulator:
         relative_user_velocity = user_velocity - initial_velocity
 
         if relative_goal_position < 0:
-            user_acceleration = -user_deceleration
-            user_deceleration = -user_deceleration
+            sign = -1
+            relative_goal_position = abs(relative_goal_position)
 
       # Calculate time and distances to extremes
         time_to_max_velocity = relative_user_velocity / user_acceleration
@@ -45,33 +46,35 @@ class LinearActuatorSimulator:
             user_acceleration,
             user_deceleration,
             user_velocity,
-            user_goal_position,
-            initial_position,
+            relative_goal_position,
             initial_velocity,
-            time_to_max_velocity,
-            time_to_no_velocity,
             )
         if not valid:
             print('Not a valid movement')
-            exit()
+            return [0,0,0,0], [0,0,0,0]
 
       # Handle Triangle Motion Profile if necessary
-        if abs(distance_to_max_velocity) + abs(distance_to_no_velocity) > relative_goal_position:
-            time_to_max_velocity = (math.sqrt(user_deceleration*(user_acceleration + user_deceleration)*(2*user_acceleration*relative_goal_position + initial_velocity**2)) - user_acceleration * initial_velocity - user_deceleration * initial_velocity)/(user_acceleration*(user_acceleration+user_deceleration))
-            time_to_no_velocity = (math.sqrt(user_deceleration*(user_acceleration + user_deceleration)*(2*user_acceleration*relative_goal_position + initial_velocity**2)) - user_acceleration * initial_velocity - user_deceleration * initial_velocity)/(user_deceleration*(user_deceleration+user_acceleration))
+        if distance_to_max_velocity + distance_to_no_velocity > abs(relative_goal_position):
+            numerator = ((sqrt(user_deceleration * (user_acceleration + user_deceleration)
+                                    * (2 * user_acceleration * relative_goal_position + initial_velocity**2))
+                                    - user_acceleration * initial_velocity - user_deceleration * initial_velocity))
+                                    
+            time_to_max_velocity = numerator / (user_acceleration * (user_acceleration + user_deceleration))
+            time_to_no_velocity = numerator / (user_deceleration * (user_deceleration + user_acceleration))
+            
             const_v_time = 0
             time_under_initial = initial_velocity / user_deceleration
               
       # If not calculate time with no accel
         else:
-            const_v_time = (relative_goal_position
+            const_v_time = abs(((relative_goal_position
                             - (distance_to_no_velocity
-                            + distance_to_max_velocity)) / user_velocity
+                            + distance_to_max_velocity)) / user_velocity))
             time_under_initial = 0
             
         total_time = time_to_no_velocity + time_to_max_velocity + const_v_time + time_under_initial
         time_array = [0, time_to_max_velocity, time_to_max_velocity + const_v_time, total_time]
-        accelerations = [user_acceleration, 0, -user_deceleration, 0]
+        accelerations = [sign*user_acceleration, 0, sign*-user_deceleration, 0]
 
         return time_array, accelerations
 
@@ -80,11 +83,8 @@ class LinearActuatorSimulator:
         user_acceleration,
         user_deceleration,
         user_velocity,
-        user_goal_position,
-        initial_position,
+        relative_goal_position,
         initial_velocity,
-        time_to_max_velocity,
-        time_to_no_velocity,
         ):
         
         if user_acceleration == 0 or user_deceleration == 0:
@@ -93,53 +93,54 @@ class LinearActuatorSimulator:
         if user_velocity == 0:
             print('Velocity must be greater than 0')
             return False
-
+        if abs(relative_goal_position) < 0.5 * user_deceleration * (initial_velocity/user_deceleration) ** 2:
+            print('Goal position is too close to the initial position')
+            return False
         return True
-
-    @staticmethod
-    def plot_data(
-        discretized_times,
-        positions,
-        velocities,
-        discretized_accel,
-        ):
-        plt.figure(figsize=(10, 6))
-
-        plt.subplot(3, 1, 3)
-        plt.plot(discretized_times, positions, label='Position')
-        plt.xlabel('Time (s)')
-        plt.ylabel('Position')
-
-        plt.subplot(3, 1, 2)
-        plt.plot(discretized_times, velocities, label='Velocity')
-        plt.ylabel('Velocity')
-
-        plt.subplot(3, 1, 1)
-        plt.plot(discretized_times, discretized_accel,
-        label='Acceleration')
-        plt.title('Linear Actuator Motion Profile')
-        plt.ylabel('Acceleration')
-
-        plt.tight_layout()
-        plt.show()
 
 
 class Operations:
 
     def __init__(self, initial_velocity, initial_position):
         self.last_value = 0
-        self.acceleration = 0
-        self.acceleration_array = []
-        self.initial_velocity = initial_velocity
-        self.initial_position = initial_position
+        self.last_acceleration = 0
+        self.current_velocity = initial_velocity
+        self.current_position = initial_position
 
     def step(self, acceleration, t):
         deltatime = t - self.last_value
-        self.acceleration_array.append(acceleration)
-        velocities = np.cumsum(self.acceleration_array) * deltatime + self.initial_velocity
-        positions = np.cumsum(velocities) * deltatime + velocities[-1] * deltatime + self.initial_position
+        self.current_velocity += self.last_acceleration * deltatime
+        self.current_position += self.current_velocity * deltatime + 0.5 * acceleration * deltatime**2
         self.last_value = t
-        return positions[-1], velocities[-1]
+        self.last_acceleration = acceleration
+        return self.current_position, self.current_velocity
+
+def plot_data(
+    discretized_times,
+    positions,
+    velocities,
+    discretized_accel,
+    ):
+
+    plt.figure(figsize=(10, 6))
+    plt.subplot(3, 1, 3)
+    
+    plt.plot(discretized_times, positions, label='Position')
+    plt.xlabel('Time (s)')
+    plt.ylabel('Position')
+
+    plt.subplot(3, 1, 2)
+    plt.plot(discretized_times, velocities, label='Velocity')
+    plt.ylabel('Velocity')
+
+    plt.subplot(3, 1, 1)
+    plt.plot(discretized_times, discretized_accel,
+    label='Acceleration')
+    plt.title('Linear Actuator Motion Profile')
+    plt.ylabel('Acceleration')
+
+    plt.tight_layout()
+    plt.show()
 
 
 def simulate(
@@ -156,8 +157,8 @@ def simulate(
     Motor1 = Operations(initial_velocity, initial_position)
 
     # Time : (user_accel, user_goal_pos, user_velocity, user_decel)
-    move_commands = {3: (6, 11, 5, 8), 
-                     20: (2, 50, 50, 4)}
+    move_commands = {3: (6, 50, 5, 8), 
+                     20: (2, 0, 8, 4)}
 
     command_time = list(move_commands.keys())
     j = 0
@@ -173,7 +174,8 @@ def simulate(
             j += 1
 
             for k in range(3):
-                indices = np.where((sim_time_array > continuous_time_array[k]) & (sim_time_array < continuous_time_array[k + 1]))[0]
+                indices = np.where((sim_time_array > continuous_time_array[k]) 
+                                   & (sim_time_array < continuous_time_array[k + 1]))[0]
                 sim_accelerations[indices] = continuous_accelerations[k]
 
         sim_positions[i], sim_velocities[i] = Motor1.step(sim_accelerations[i], t)
@@ -182,14 +184,14 @@ def simulate(
     print(sim_velocities[-1])
     print(sim_positions[-1])
 
-    LinearActuatorSimulator.plot_data(sim_time_array, sim_positions, sim_velocities, sim_accelerations)
+    plot_data(sim_time_array, sim_positions, sim_velocities, sim_accelerations)
 
 
 def main():
     # (sim_total_time, initial_position, initial_velocity)
-    simulate(30, 10, 6)
+    simulate(50, 10, 6)
 
-sample_rate = 100.0
+sample_rate = 10000.0
 main()
 
   # FUNCTION CALL
