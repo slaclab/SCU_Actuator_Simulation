@@ -21,6 +21,7 @@ class LinearActuatorSimulator:
         user_deceleration = abs(user_deceleration)
         
         sign = 1
+        sign_2 = 1
 
       # If initial velocity is greater than user velocity, start out decelerating
         if initial_velocity > user_velocity:
@@ -72,9 +73,53 @@ class LinearActuatorSimulator:
                             + distance_to_max_velocity)) / user_velocity))
             time_under_initial = 0
             
+        if initial_position > user_goal_position:
+            if initial_velocity < -user_velocity and initial_velocity < -0.1:
+                user_deceleration = user_acceleration
+                time_to_max_velocity = (abs(initial_velocity) - user_velocity) / user_acceleration
+                time_to_no_velocity = user_velocity / user_acceleration
+                distance_to_max_velocity = 0.5 * -user_acceleration * time_to_max_velocity ** 2 + initial_velocity * time_to_max_velocity
+                distance_to_no_velocity = 0.5 * -user_acceleration * time_to_no_velocity ** 2
+                const_v_time = abs((user_goal_position - initial_position - distance_to_max_velocity - distance_to_no_velocity) / user_velocity)
+                time_under_initial = 0
+                sign_2 = -1
+            
+            elif initial_velocity > -user_velocity and initial_velocity < -0.1:
+                time_to_max_velocity = abs((user_velocity + initial_velocity)/ user_deceleration)
+                distance_to_max_velocity = 0.5 * user_deceleration * time_to_max_velocity ** 2 + abs(initial_velocity) * time_to_max_velocity
+                time_to_no_velocity = user_velocity / user_acceleration
+                distance_to_no_velocity = 0.5 * user_acceleration * time_to_no_velocity ** 2
+                const_v_time = abs((initial_position -user_goal_position - distance_to_max_velocity - distance_to_no_velocity) / user_velocity)
+                time_under_initial = 0
+                sign_2 = -1
+                sign *= -1
+                user_deceleration, user_acceleration = -user_acceleration, user_deceleration
+
+            elif initial_velocity < user_velocity and initial_velocity > 0.1:
+                time_to_max_below = abs(initial_velocity) / user_acceleration
+                time_to_max_above = user_velocity / user_acceleration
+                time_to_max_velocity = time_to_max_below + time_to_max_above
+                distance_to_max_velocity = 0.5 * user_acceleration * time_to_max_above ** 2 - 0.5 * user_acceleration * time_to_max_below ** 2
+                time_to_no_velocity = user_velocity / user_deceleration
+                distance_to_no_velocity = 0.5 * user_deceleration * time_to_no_velocity ** 2
+                time_under_initial = 0
+            
+
+            elif initial_velocity > user_velocity and initial_velocity > 0.1:
+                user_acceleration = user_deceleration
+                time_to_max_velocity = (abs(initial_velocity) + user_velocity) / user_deceleration
+                time_to_no_velocity = user_velocity / user_deceleration
+                distance_to_max_velocity = 0.5 * user_deceleration * time_to_max_velocity ** 2 - initial_velocity * time_to_max_velocity
+                distance_to_no_velocity = 0.5 * user_deceleration * time_to_no_velocity ** 2
+                const_v_time = abs((initial_position - user_goal_position - distance_to_max_velocity - distance_to_no_velocity) / user_velocity)
+                time_under_initial = 0
+                sign_2 = -1
+                user_acceleration = -user_acceleration
+
+            
         total_time = time_to_no_velocity + time_to_max_velocity + const_v_time + time_under_initial
         time_array = [0, time_to_max_velocity, time_to_max_velocity + const_v_time, total_time]
-        accelerations = [sign*user_acceleration, 0, sign*-user_deceleration, 0]
+        accelerations = [sign_2*sign*user_acceleration, 0, sign*-user_deceleration, 0]
 
         return time_array, accelerations
 
@@ -108,6 +153,7 @@ class Operations:
         self.current_position = initial_position
 
     def step(self, acceleration, t):
+        # RK2 > Predict-Correct > Verlet > Euler
         deltatime = t - self.last_value
         self.current_velocity += self.last_acceleration * deltatime
         self.current_position += self.current_velocity * deltatime + 0.5 * acceleration * deltatime**2
@@ -157,8 +203,8 @@ def simulate(
     Motor1 = Operations(initial_velocity, initial_position)
 
     # Time : (user_accel, user_goal_pos, user_velocity, user_decel)
-    move_commands = {3: (6, 50, 5, 8), 
-                     20: (2, 0, 8, 4)}
+    move_commands = {1: (6, 120, 5, 8),
+                     30: (2, 110, 20, 4)}
 
     command_time = list(move_commands.keys())
     j = 0
@@ -189,7 +235,7 @@ def simulate(
 
 def main():
     # (sim_total_time, initial_position, initial_velocity)
-    simulate(50, 10, 6)
+    simulate(60, 0, 6)
 
 sample_rate = 10000.0
 main()
