@@ -16,7 +16,7 @@ class LinearActuatorSimulator:
 
       # Ignore signs of user input
         user_acceleration = abs(user_acceleration)
-        user_goal_position = abs(user_goal_position)
+        # user_goal_position = abs(user_goal_position)
         user_velocity = abs(user_velocity)
         user_deceleration = abs(user_deceleration)
         
@@ -30,10 +30,6 @@ class LinearActuatorSimulator:
       # Calculate relative values
         relative_goal_position = user_goal_position - initial_position
         relative_user_velocity = user_velocity - initial_velocity
-
-        if relative_goal_position < 0:
-            sign = -1
-            relative_goal_position = abs(relative_goal_position)
 
       # Calculate time and distances to extremes
         time_to_max_velocity = relative_user_velocity / user_acceleration
@@ -54,68 +50,77 @@ class LinearActuatorSimulator:
             print('Not a valid movement')
             return [0,0,0,0], [0,0,0,0]
 
-      # Handle Triangle Motion Profile if necessary
-        if distance_to_max_velocity + distance_to_no_velocity > abs(relative_goal_position):
-            numerator = ((sqrt(user_deceleration * (user_acceleration + user_deceleration)
-                                    * (2 * user_acceleration * relative_goal_position + initial_velocity**2))
-                                    - user_acceleration * initial_velocity - user_deceleration * initial_velocity))
-                                    
-            time_to_max_velocity = numerator / (user_acceleration * (user_acceleration + user_deceleration))
-            time_to_no_velocity = numerator / (user_deceleration * (user_deceleration + user_acceleration))
-            
-            const_v_time = 0
-            time_under_initial = initial_velocity / user_deceleration
+        if initial_position < user_goal_position:
+            # Handle Triangle Motion Profile if necessary
+            if distance_to_max_velocity + distance_to_no_velocity > relative_goal_position:
+                time_to_max_velocity, time_to_no_velocity = LinearActuatorSimulator.triangle_profile(
+                    user_acceleration, 
+                    user_deceleration, 
+                    initial_velocity, 
+                    relative_goal_position)
               
-      # If not calculate time with no accel
+                const_v_time = 0
+                time_under_initial = initial_velocity / user_deceleration
+            # If not calculate time with no accel
+            else:
+                const_v_time = abs((relative_goal_position
+                                - (distance_to_no_velocity
+                                + distance_to_max_velocity)) / user_velocity)
+                time_under_initial = 0
+                
         else:
-            const_v_time = abs(((relative_goal_position
-                            - (distance_to_no_velocity
-                            + distance_to_max_velocity)) / user_velocity))
             time_under_initial = 0
-            
-        if initial_position > user_goal_position:
-            if initial_velocity < -user_velocity and initial_velocity < -0.1:
+            sign_2 = -1
+            sign = -1
+            relative_goal_position = abs(relative_goal_position)
+          
+            if initial_velocity < -user_velocity and initial_velocity < 0:
                 user_deceleration = user_acceleration
                 time_to_max_velocity = (abs(initial_velocity) - user_velocity) / user_acceleration
                 time_to_no_velocity = user_velocity / user_acceleration
-                distance_to_max_velocity = 0.5 * -user_acceleration * time_to_max_velocity ** 2 + initial_velocity * time_to_max_velocity
-                distance_to_no_velocity = 0.5 * -user_acceleration * time_to_no_velocity ** 2
-                const_v_time = abs((user_goal_position - initial_position - distance_to_max_velocity - distance_to_no_velocity) / user_velocity)
-                time_under_initial = 0
-                sign_2 = -1
+                distance_to_max_velocity = abs(0.5 * -user_acceleration * time_to_max_velocity ** 2 - initial_velocity * time_to_max_velocity)
+                distance_to_no_velocity = abs(0.5 * -user_acceleration * time_to_no_velocity ** 2)
+                const_v_time = abs((relative_goal_position - distance_to_max_velocity - distance_to_no_velocity) / user_velocity)
             
-            elif initial_velocity > -user_velocity and initial_velocity < -0.1:
+            elif initial_velocity > -user_velocity and initial_velocity < 0:
                 time_to_max_velocity = abs((user_velocity + initial_velocity)/ user_deceleration)
-                distance_to_max_velocity = 0.5 * user_deceleration * time_to_max_velocity ** 2 + abs(initial_velocity) * time_to_max_velocity
                 time_to_no_velocity = user_velocity / user_acceleration
+                distance_to_max_velocity = 0.5 * user_deceleration * time_to_max_velocity ** 2 + abs(initial_velocity) * time_to_max_velocity
                 distance_to_no_velocity = 0.5 * user_acceleration * time_to_no_velocity ** 2
-                const_v_time = abs((initial_position -user_goal_position - distance_to_max_velocity - distance_to_no_velocity) / user_velocity)
-                time_under_initial = 0
-                sign_2 = -1
-                sign *= -1
-                user_deceleration, user_acceleration = -user_acceleration, user_deceleration
+                user_deceleration, user_acceleration = user_acceleration, -user_deceleration
+                const_v_time = abs((initial_position - user_goal_position - distance_to_max_velocity - distance_to_no_velocity) / user_velocity)
 
-            elif initial_velocity < user_velocity and initial_velocity > 0.1:
+            elif initial_velocity < user_velocity and initial_velocity > 0:
+                user_deceleration, user_acceleration = user_acceleration, user_deceleration
                 time_to_max_below = abs(initial_velocity) / user_acceleration
                 time_to_max_above = user_velocity / user_acceleration
                 time_to_max_velocity = time_to_max_below + time_to_max_above
-                distance_to_max_velocity = 0.5 * user_acceleration * time_to_max_above ** 2 - 0.5 * user_acceleration * time_to_max_below ** 2
                 time_to_no_velocity = user_velocity / user_deceleration
+                distance_to_max_velocity = 0.5 * user_acceleration * time_to_max_above ** 2 - 0.5 * user_acceleration * time_to_max_below ** 2
                 distance_to_no_velocity = 0.5 * user_deceleration * time_to_no_velocity ** 2
-                time_under_initial = 0
-            
+                sign_2 = 1
+                const_v_time = abs((abs(user_goal_position - initial_position) - distance_to_max_velocity - distance_to_no_velocity) / user_velocity)  
 
-            elif initial_velocity > user_velocity and initial_velocity > 0.1:
-                user_acceleration = user_deceleration
+            elif initial_velocity > user_velocity and initial_velocity > 0:
+                user_acceleration = -user_deceleration
                 time_to_max_velocity = (abs(initial_velocity) + user_velocity) / user_deceleration
                 time_to_no_velocity = user_velocity / user_deceleration
                 distance_to_max_velocity = 0.5 * user_deceleration * time_to_max_velocity ** 2 - initial_velocity * time_to_max_velocity
                 distance_to_no_velocity = 0.5 * user_deceleration * time_to_no_velocity ** 2
                 const_v_time = abs((initial_position - user_goal_position - distance_to_max_velocity - distance_to_no_velocity) / user_velocity)
-                time_under_initial = 0
-                sign_2 = -1
-                user_acceleration = -user_acceleration
-
+                
+            # const_v_time = abs((relative_goal_position - distance_to_max_velocity - distance_to_no_velocity) / user_velocity)
+                
+            
+            if distance_to_max_velocity + distance_to_no_velocity > relative_goal_position:
+                time_to_max_velocity, time_to_no_velocity = LinearActuatorSimulator.triangle_profile(
+                    user_acceleration, 
+                    user_deceleration, 
+                    -initial_velocity, 
+                    relative_goal_position + 0.5 * user_deceleration * time_under_initial ** 2
+                )
+                time_under_initial = -initial_velocity / user_deceleration
+                const_v_time = 0
             
         total_time = time_to_no_velocity + time_to_max_velocity + const_v_time + time_under_initial
         time_array = [0, time_to_max_velocity, time_to_max_velocity + const_v_time, total_time]
@@ -140,9 +145,19 @@ class LinearActuatorSimulator:
             return False
         if abs(relative_goal_position) < 0.5 * user_deceleration * (initial_velocity/user_deceleration) ** 2:
             print('Goal position is too close to the initial position')
-            return False
+            # return False
         return True
 
+    @staticmethod
+    def triangle_profile(user_acceleration, user_deceleration, initial_velocity, relative_goal_position):
+        numerator = ((sqrt(user_deceleration * (user_acceleration + user_deceleration)
+                                * (2 * user_acceleration * relative_goal_position + initial_velocity**2))
+                                - user_acceleration * initial_velocity - user_deceleration * initial_velocity))
+                                   
+        time_to_max_velocity = numerator / (user_acceleration * (user_acceleration + user_deceleration))
+        time_to_no_velocity = numerator / (user_deceleration * (user_deceleration + user_acceleration))
+        
+        return time_to_max_velocity, time_to_no_velocity
 
 class Operations:
 
@@ -203,8 +218,8 @@ def simulate(
     Motor1 = Operations(initial_velocity, initial_position)
 
     # Time : (user_accel, user_goal_pos, user_velocity, user_decel)
-    move_commands = {1: (6, 120, 5, 8),
-                     30: (2, 110, 20, 4)}
+    move_commands = {1: (5, 85, 5, 10),
+                     80: (2, -110, 15, 4)}
 
     command_time = list(move_commands.keys())
     j = 0
@@ -235,7 +250,7 @@ def simulate(
 
 def main():
     # (sim_total_time, initial_position, initial_velocity)
-    simulate(60, 0, 6)
+    simulate(40, 10, -6)
 
 sample_rate = 10000.0
 main()
